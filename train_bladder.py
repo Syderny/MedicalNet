@@ -11,15 +11,15 @@ import numpy as np
 from torch import nn
 from torch import optim
 from torch.optim import lr_scheduler
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, random_split
 import time
 from utils.logger import log
 from scipy import ndimage
 import os
 
-def train(data_loader, model, optimizer, scheduler, total_epochs, save_interval, save_folder, sets):
+def train(train_loader, valid_loader, model, optimizer, scheduler, total_epochs, save_interval, save_folder, sets):
     # settings
-    batches_per_epoch = len(data_loader)
+    batches_per_epoch = len(train_loader)
     log.info('{} epochs in total, {} batches per epoch'.format(total_epochs, batches_per_epoch))
     loss_cl = nn.CrossEntropyLoss()
 
@@ -38,9 +38,10 @@ def train(data_loader, model, optimizer, scheduler, total_epochs, save_interval,
         scheduler.step()
         log.info('lr = {}'.format(scheduler.get_lr()))
         
+        loss_list = []
         acc_list = []
 
-        for batch_id, batch_data in enumerate(data_loader):
+        for batch_id, batch_data in enumerate(train_loader):
             # getting data batch
             batch_id_sp = epoch * batches_per_epoch
             volumes, label = batch_data
@@ -57,6 +58,10 @@ def train(data_loader, model, optimizer, scheduler, total_epochs, save_interval,
             loss = loss_value
             loss.backward()                
             optimizer.step()
+            
+            loss_list.append(loss.item())
+            loss_avg = sum(loss_list) / len(loss_list)
+
 
             # calculating acc
             pred = output.argmax(dim=1)
@@ -65,8 +70,8 @@ def train(data_loader, model, optimizer, scheduler, total_epochs, save_interval,
 
             avg_batch_time = (time.time() - train_time_sp) / (1 + batch_id_sp)
             log.info(
-                    'Batch: {}-{} ({}), loss = {:.3f}, loss_cl = {:.3f}, batch_acc = {:.3f}, avg_batch_time = {:.3f}'\
-                    .format(epoch, batch_id, batch_id_sp, loss.item(), loss_value.item(), acc, avg_batch_time))
+                    'Train Batch: {}-{} ({}), loss = {:.3f}, loss_avg = {:.3f}, batch_acc = {:.3f}, avg_batch_time = {:.3f}'\
+                    .format(epoch, batch_id, batch_id_sp, loss_value.item(), loss_avg, acc, avg_batch_time))
           
             if not sets.ci_test:
                 # save model
@@ -84,6 +89,39 @@ def train(data_loader, model, optimizer, scheduler, total_epochs, save_interval,
                                 'state_dict': model.state_dict(),
                                 'optimizer': optimizer.state_dict()},
                                 model_save_path)
+
+        loss_list = []
+        acc_list = []
+
+        with torch.no_grad():
+            for batch_id, batch_data in enumerate(valid_loader):
+                # getting data batch
+                batch_id_sp = epoch * batches_per_epoch
+                volumes, label = batch_data
+
+                if not sets.no_cuda: 
+                    volumes = volumes.cuda()
+                    label = label.cuda()
+
+                output = model(volumes)
+
+                # calculating loss
+                loss_value = loss_cl(output, label)
+                loss = loss_value
+                
+                loss_list.append(loss.item())
+                loss_avg = sum(loss_list) / len(loss_list)
+
+                # calculating acc
+                pred = output.argmax(dim=1)
+                acc_list.append(torch.eq(pred, label).sum().float().item())
+                acc = sum(acc_list) / len(acc_list)
+
+                avg_batch_time = (time.time() - train_time_sp) / (1 + batch_id_sp)
+                log.info(
+                        'Valid Batch: {}-{} ({}), loss = {:.3f}, loss_avg = {:.3f}, batch_acc = {:.3f}, avg_batch_time = {:.3f}'\
+                        .format(epoch, batch_id, batch_id_sp, loss_value.item(), loss_avg, acc, avg_batch_time))
+                
                             
     print('Finished training')            
     if sets.ci_test:
@@ -137,8 +175,12 @@ if __name__ == '__main__':
         sets.pin_memory = False
     else:
         sets.pin_memory = True    
-    training_dataset = BladderDataset(sets.data_root, sets)
-    data_loader = DataLoader(training_dataset, batch_size=sets.batch_size, shuffle=True, num_workers=sets.num_workers, pin_memory=sets.pin_memory)
+    dataset = BladderDataset(sets.data_root, sets)
+    len_trainset = int(len(dataset) * 0.7)
+    len_validset = len(dataset) - len_trainset
+    trainset, validset = random_split(dataset, [len_trainset, len_validset])
+    train_loader = DataLoader(trainset, batch_size=sets.batch_size, shuffle=True, num_workers=sets.num_workers, pin_memory=sets.pin_memory)
+    valid_loader = DataLoader(validset, batch_size=sets.batch_size)
 
     # training
-    train(data_loader, model, optimizer, scheduler, total_epochs=sets.n_epochs, save_interval=sets.save_intervals, save_folder=sets.save_folder, sets=sets) 
+    train(train_loader, valid_loader, model, optimizer, scheduler, total_epochs=sets.n_epochs, save_interval=sets.save_intervals, save_folder=sets.save_folder, sets=sets) 
