@@ -142,10 +142,7 @@ class ResNet(nn.Module):
         self.layer4 = self._make_layer(
             block, 512, layers[3], shortcut_type, stride=1, dilation=4)
         
-        last_D = math.ceil(sample_input_D / 16)
-        last_H = math.ceil(sample_input_H / 16)
-        last_W = math.ceil(sample_input_W / 16)
-        self.avgpool = nn.AvgPool3d((last_D, last_H, last_W), stride=1)
+        self.avgpool = nn.AdaptiveAvgPool3d((1, 1, 1))
         self.fc = nn.Linear(512 * block.expansion, num_classes)
 
         for m in self.modules():

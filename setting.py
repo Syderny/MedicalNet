@@ -68,7 +68,7 @@ def parse_opts():
     parser.add_argument(
         '--pretrain_path',
         # default='pretrain/resnet_50.pth',
-        default='',
+        default=r'D:\data\pretrain\resnet_10_23dataset.pth',
         type=str,
         help=
         'Path for pretrained model.'
@@ -105,7 +105,7 @@ def parse_opts():
     parser.add_argument(
         '--manual_seed', default=1, type=int, help='Manually set random seed')
     parser.add_argument(
-        '--ci_test', default=True, action='store_true', help='If true, ci testing is used.')
+        '--ci_test', default=False, action='store_true', help='If true, ci testing is used.')
     args = parser.parse_args()
     args.save_folder = "./trails/models/{}_{}".format(args.model, args.model_depth)
     

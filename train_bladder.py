@@ -21,13 +21,14 @@ def train(data_loader, model, optimizer, scheduler, total_epochs, save_interval,
     # settings
     batches_per_epoch = len(data_loader)
     log.info('{} epochs in total, {} batches per epoch'.format(total_epochs, batches_per_epoch))
-    loss_seg = nn.CrossEntropyLoss()
+    loss_cl = nn.CrossEntropyLoss()
 
     print("Current setting is:")
     print(sets)
     print("\n\n")     
     if not sets.no_cuda:
-        loss_seg = loss_seg.cuda()
+        loss_cl = loss_cl.cuda()
+
         
     model.train()
     train_time_sp = time.time()
@@ -37,6 +38,8 @@ def train(data_loader, model, optimizer, scheduler, total_epochs, save_interval,
         scheduler.step()
         log.info('lr = {}'.format(scheduler.get_lr()))
         
+        acc_list = []
+
         for batch_id, batch_data in enumerate(data_loader):
             # getting data batch
             batch_id_sp = epoch * batches_per_epoch
@@ -44,20 +47,26 @@ def train(data_loader, model, optimizer, scheduler, total_epochs, save_interval,
 
             if not sets.no_cuda: 
                 volumes = volumes.cuda()
+                label = label.cuda()
 
             optimizer.zero_grad()
             output = model(volumes)
 
             # calculating loss
-            loss_value = loss_seg(output, label)
+            loss_value = loss_cl(output, label)
             loss = loss_value
             loss.backward()                
             optimizer.step()
 
+            # calculating acc
+            pred = output.argmax(dim=1)
+            acc_list.append(torch.eq(pred, label).sum().float().item())
+            acc = sum(acc_list) / len(acc_list)
+
             avg_batch_time = (time.time() - train_time_sp) / (1 + batch_id_sp)
             log.info(
-                    'Batch: {}-{} ({}), loss = {:.3f}, loss_seg = {:.3f}, avg_batch_time = {:.3f}'\
-                    .format(epoch, batch_id, batch_id_sp, loss.item(), loss_value.item(), avg_batch_time))
+                    'Batch: {}-{} ({}), loss = {:.3f}, loss_cl = {:.3f}, batch_acc = {:.3f}, avg_batch_time = {:.3f}'\
+                    .format(epoch, batch_id, batch_id_sp, loss.item(), loss_value.item(), acc, avg_batch_time))
           
             if not sets.ci_test:
                 # save model
@@ -93,8 +102,8 @@ if __name__ == '__main__':
     #     sets.model_depth = 10
     #     sets.resnet_shortcut = 'A'
     #     sets.input_D = 50
-    #     sets.input_H = 640
-    #     sets.input_W = 640
+    #     sets.input_H = 160
+    #     sets.input_W = 160
        
     
     # getting model
@@ -128,7 +137,7 @@ if __name__ == '__main__':
         sets.pin_memory = False
     else:
         sets.pin_memory = True    
-    training_dataset = BladderDataset(sets.data_root)
+    training_dataset = BladderDataset(sets.data_root, sets)
     data_loader = DataLoader(training_dataset, batch_size=sets.batch_size, shuffle=True, num_workers=sets.num_workers, pin_memory=sets.pin_memory)
 
     # training
